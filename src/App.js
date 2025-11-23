@@ -448,7 +448,6 @@ const App = () => {
   };
 
   // ---------------------- UI COMPONENTS ----------------------
-  // (Smaller UI components adapted from original; trimmed to essential for readability)
   const SetupForm = () => {
     const [name, setNameLocal] = useState('');
     const [role, setRoleLocal] = useState('reporter');
