@@ -1,19 +1,18 @@
-/* src/App.js
-   Full app: Firebase (anonymous auth) + Firestore + Gemini proxy client calls.
-   Replace your src/App.js content with this file.
-*/
+// src/App.js
+// Full app: Firebase (anonymous auth) + Firestore + Gemini proxy client calls.
+// Replace your src/App.js content with this file.
 
 import React, { useState, useEffect, useContext } from "react";
-import { initializeApp } from "firebase/app";
+import logo from './logo.svg';
+import './App.css';
+
 import {
-  getAuth,
   signInAnonymously,
-  signInWithCustomToken,
   onAuthStateChanged,
   signOut
 } from "firebase/auth";
+
 import {
-  getFirestore,
   doc,
   setDoc,
   onSnapshot,
@@ -24,6 +23,7 @@ import {
   runTransaction,
   Timestamp
 } from "firebase/firestore";
+
 import {
   Loader2,
   Zap,
@@ -38,23 +38,15 @@ import {
   LogOut
 } from "lucide-react";
 
-// ---------------------- CONFIG (from .env.local) ----------------------
-const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "fake-key",
-  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "local-app",
-  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "local-test",
-  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "local-test",
-  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "0000000000",
-  appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:0000000000:web:000000"
-};
+import { db, auth, APP_ID } from "./firebase";
 
-const GEMINI_PROXY_PATH = "/api/gemini"; // serverless proxy you will deploy on Vercel/Netlify
+// ---------------------- CONFIG (from .env.local) ----------------------
+const GEMINI_PROXY_PATH = process.env.REACT_APP_GEMINI_PROXY_URL || "/api/gemini"; // serverless proxy you will deploy on Vercel/Netlify
 
 // ---------------------- CONTEXT ----------------------
 const AppContext = React.createContext({});
 
 // ---------------------- UTILITIES ----------------------
-
 // Call the Gemini proxy serverless endpoint (server holds the real key)
 const callGeminiProxy = async (payload) => {
   try {
@@ -115,7 +107,6 @@ const resizeImageAndConvertToBase64 = (file, maxWidth = 800, quality = 0.7) => {
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
-
         if (width > maxWidth || height > maxWidth) {
           if (width > height) {
             height = height * (maxWidth / width);
@@ -125,7 +116,6 @@ const resizeImageAndConvertToBase64 = (file, maxWidth = 800, quality = 0.7) => {
             height = maxWidth;
           }
         }
-
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
@@ -142,7 +132,6 @@ const resizeImageAndConvertToBase64 = (file, maxWidth = 800, quality = 0.7) => {
 };
 
 // ---------------------- GEMINI FEATURE COMPONENTS ----------------------
-
 const WasteInsightGenerator = ({ classification, priority }) => {
   const [insight, setInsight] = useState("Tap '✨ Generate Handling Guide' for expert advice...");
   const [isLoading, setIsLoading] = useState(false);
@@ -209,12 +198,8 @@ const MonitorSummaryGenerator = ({ report }) => {
 };
 
 // ---------------------- MAIN APP ----------------------
-
 const App = () => {
-  // firebase objects
-  const [db, setDb] = useState(null);
-  const [auth, setAuth] = useState(null);
-
+  // firebase objects are imported from src/firebase.js
   // user/session
   const [userId, setUserId] = useState(null);
   const [isSystemReady, setIsSystemReady] = useState(false);
@@ -232,21 +217,15 @@ const App = () => {
     setModal({ visible: true, title, message, type });
   };
 
-  // --- Firebase init + Auth (anonymous by default)
+  // --- Firebase Auth init (anonymous by default)
   useEffect(() => {
     try {
-      const app = initializeApp(firebaseConfig);
-      const firestoreDb = getFirestore(app);
-      const firebaseAuth = getAuth(app);
-      setDb(firestoreDb);
-      setAuth(firebaseAuth);
-
-      // Sign in anonymously (if allowed)
-      signInAnonymously(firebaseAuth).catch(err => {
+      // sign in anonymously (using imported auth)
+      signInAnonymously(auth).catch(err => {
         console.warn("Anonymous sign-in failed (check auth settings):", err.message);
       });
 
-      const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
         if (user) {
           setUserId(user.uid);
         } else {
@@ -258,14 +237,14 @@ const App = () => {
       return () => unsubscribe();
     } catch (e) {
       console.error("Firebase Initialization Error:", e);
-      alertUser({ title: "System Error", message: "Failed to initialize Firebase.", type: 'error' });
+      alertUser({ title: "System Error", message: "Failed to initialize/authenticate Firebase.", type: 'error' });
     }
   }, []);
 
   // --- Profile listener: checks for user profile doc and sets authorization
   useEffect(() => {
-    if (db && userId) {
-      const profileDocRef = doc(db, `artifacts/${firebaseConfig.appId}/users/${userId}/profiles`, 'public');
+    if (userId) {
+      const profileDocRef = doc(db, `artifacts/${APP_ID}/users/${userId}/profiles`, 'public');
       const unsubscribeProfile = onSnapshot(profileDocRef, (docSnap) => {
         if (docSnap.exists && docSnap.exists()) {
           const profileData = docSnap.data();
@@ -288,16 +267,15 @@ const App = () => {
           setView('setup');
         }
       });
-
       return () => unsubscribeProfile();
     }
-  }, [db, userId, view]);
+  }, [userId, view]);
 
   // --- Reports listener (only when profile loaded)
   useEffect(() => {
-    if (db && userProfile) {
+    if (userProfile) {
       setIsLoadingReports(true);
-      const reportsRef = collection(db, `artifacts/${firebaseConfig.appId}/public/data/reports`);
+      const reportsRef = collection(db, `artifacts/${APP_ID}/public/data/reports`);
       const q = query(reportsRef);
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -312,17 +290,16 @@ const App = () => {
         console.error("Reports listener error:", error);
         setIsLoadingReports(false);
       });
-
       return () => unsubscribe();
     } else {
       setIsLoadingReports(false);
       setReports([]);
     }
-  }, [db, userProfile]);
+  }, [userProfile]);
 
   // --- PROFILE SETUP (writes profile doc)
   const handleProfileSetup = async (name, role) => {
-    if (!db || !userId) return;
+    if (!userId) return;
     try {
       const profileData = {
         name,
@@ -332,7 +309,7 @@ const App = () => {
         dateJoined: new Date(),
         publicUserId: userId,
       };
-      const profileDocRef = doc(db, `artifacts/${firebaseConfig.appId}/users/${userId}/profiles`, 'public');
+      const profileDocRef = doc(db, `artifacts/${APP_ID}/users/${userId}/profiles`, 'public');
       await setDoc(profileDocRef, profileData);
       alertUser({ title: "Setup Success!", message: "Profile created.", type: 'success' });
     } catch (e) {
@@ -343,7 +320,7 @@ const App = () => {
 
   // --- REPORT SUBMIT (image file + simulated classification + optional Gemini reward)
   const handleReportSubmission = async (imageFile, location) => {
-    if (!db || !userId || !userProfile) {
+    if (!userId || !userProfile) {
       alertUser({ title: "Submission Failed", message: "Please finish setup and wait for profile to load.", type: 'error' });
       return;
     }
@@ -359,7 +336,7 @@ const App = () => {
         console.warn("Gemini reward suggestion failed, using fallback:", e);
       }
 
-      const reportsRef = collection(db, `artifacts/${firebaseConfig.appId}/public/data/reports`);
+      const reportsRef = collection(db, `artifacts/${APP_ID}/public/data/reports`);
       const newReport = {
         reporterId: userId,
         reporterName: userName,
@@ -375,7 +352,6 @@ const App = () => {
         reporterRewardIssued: false,
         pickerRewardIssued: false,
       };
-
       const docRef = await addDoc(reportsRef, newReport);
       alertUser({ title: "Report Submitted!", message: `Classified: ${classification}. Reward: ${baseReward} pts. ID: ${docRef.id}`, type: 'success' });
     } catch (error) {
@@ -386,9 +362,9 @@ const App = () => {
 
   // --- CLAIM, PROOF, APPROVAL HANDLERS ---
   const handleClaimReport = async (reportId) => {
-    if (!db || !userId || !userProfile) return alertUser({ title: "Claim Failed", message: "Profile not ready.", type: 'error' });
+    if (!userId || !userProfile) return alertUser({ title: "Claim Failed", message: "Profile not ready.", type: 'error' });
     try {
-      const reportDocRef = doc(db, `artifacts/${firebaseConfig.appId}/public/data/reports`, reportId);
+      const reportDocRef = doc(db, `artifacts/${APP_ID}/public/data/reports`, reportId);
       await updateDoc(reportDocRef, { status: 'Claimed', pickerId: userId, pickerName: userName });
       alertUser({ title: "Report Claimed!", message: "Proceed to cleanup.", type: 'success' });
     } catch (e) {
@@ -398,10 +374,10 @@ const App = () => {
   };
 
   const handleSubmitProof = async (reportId, cleanupFile, location) => {
-    if (!db || !userId || !userProfile) return alertUser({ title: "Submission Failed", message: "Profile not ready.", type: 'error' });
+    if (!userId || !userProfile) return alertUser({ title: "Submission Failed", message: "Profile not ready.", type: 'error' });
     try {
       const base64Image = await resizeImageAndConvertToBase64(cleanupFile);
-      const reportDocRef = doc(db, `artifacts/${firebaseConfig.appId}/public/data/reports`, reportId);
+      const reportDocRef = doc(db, `artifacts/${APP_ID}/public/data/reports`, reportId);
       await updateDoc(reportDocRef, { status: 'Pending Review', cleanupPhotoUrl: base64Image, pickerLocation: location, proofSubmittedAt: new Date() });
       alertUser({ title: "Proof Submitted!", message: "Pending monitor review.", type: 'info' });
     } catch (e) {
@@ -411,14 +387,12 @@ const App = () => {
   };
 
   const handleFinalApproval = async (report, approvalType) => {
-    if (!db || userRole !== 'monitor' || !userProfile) return;
-    const reportRef = doc(db, `artifacts/${firebaseConfig.appId}/public/data/reports`, report.id);
-    const reporterProfileRef = doc(db, `artifacts/${firebaseConfig.appId}/users/${report.reporterId}/profiles`, 'public');
-    const pickerProfileRef = doc(db, `artifacts/${firebaseConfig.appId}/users/${report.pickerId}/profiles`, 'public');
-
+    if (userRole !== 'monitor' || !userProfile) return;
+    const reportRef = doc(db, `artifacts/${APP_ID}/public/data/reports`, report.id);
+    const reporterProfileRef = doc(db, `artifacts/${APP_ID}/users/${report.reporterId}/profiles`, 'public');
+    const pickerProfileRef = doc(db, `artifacts/${APP_ID}/users/${report.pickerId}/profiles`, 'public');
     const rewardReporter = report.baseReward || 10;
     const rewardPicker = rewardReporter * 3;
-
     try {
       await runTransaction(db, async (transaction) => {
         if (approvalType === 'approve') {
@@ -460,7 +434,6 @@ const App = () => {
 
   // --- Logout (signOut) ---
   const handleLogout = async () => {
-    if (!auth) return;
     try {
       await signOut(auth);
       alertUser({ title: "Signed Out", message: "You have been signed out.", type: 'info' });
@@ -479,19 +452,16 @@ const App = () => {
   const SetupForm = () => {
     const [name, setNameLocal] = useState('');
     const [role, setRoleLocal] = useState('reporter');
-
     const roles = {
       'reporter': "Citizen Reporter",
       'picker': "Garbage Picker",
       'monitor': "Government Monitor"
     };
-
     const submit = (e) => {
       e.preventDefault();
       if (!name.trim()) return alertUser({ title: "Missing", message: "Enter name.", type: 'error' });
       handleProfileSetup(name.trim(), role);
     };
-
     return (
       <div className="p-8 bg-white rounded-xl shadow-md max-w-lg mx-auto mt-12">
         <h2 className="text-2xl font-bold mb-4">System Setup</h2>
@@ -518,6 +488,7 @@ const App = () => {
       await handleReportSubmission(file, location);
       setFile(null);
       setIsLoading(false);
+      setView('reports');
     };
 
     return (
@@ -537,7 +508,6 @@ const App = () => {
     const [file, setFile] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [location] = useState({ lat: (30 + Math.random()*0.1).toFixed(4), lon: (78 + Math.random()*0.1).toFixed(4) });
-
     const submit = async () => {
       if (!file) return alertUser({ title: "Missing", message: "Please upload proof", type: 'error' });
       setIsSubmitting(true);
@@ -545,7 +515,6 @@ const App = () => {
       setIsSubmitting(false);
       onClose();
     };
-
     return (
       <div className="p-6 bg-white rounded-xl shadow mt-3">
         <h4 className="font-semibold">Submit Cleanup Proof</h4>
@@ -634,6 +603,7 @@ const App = () => {
           <button onClick={()=>setView('reports')} className={`px-3 py-1 rounded ${view==='reports' ? 'bg-indigo-600' : ''}`}>Reports</button>
           <button onClick={()=>setView('profile')} className={`px-3 py-1 rounded ${view==='profile' ? 'bg-indigo-600' : ''}`}>Profile</button>
         </div>
+
         <div className="flex items-center gap-3">
           {userProfile && <span className={`px-3 py-1 rounded-full ${userProfile?.role==='monitor' ? 'bg-red-500' : userProfile?.role==='picker' ? 'bg-green-500' : 'bg-indigo-500'}`}>{userProfile?.name} ({userProfile?.role})</span>}
           <button onClick={handleLogout} className="bg-red-600 px-3 py-1 rounded text-white"><LogOut className="w-4 h-4 inline" /> Logout</button>
